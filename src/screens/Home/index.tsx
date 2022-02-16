@@ -1,16 +1,19 @@
 import React, { useEffect, useState }  from 'react';
+import { StatusBar, Button } from 'react-native';
 import { useNavigation }  from '@react-navigation/native';
-import { StatusBar } from 'react-native';
 import { RFValue } from 'react-native-responsive-fontsize';
-import { Ionicons } from '@expo/vector-icons';
+import { useNetInfo } from '@react-native-community/netinfo';
+import { synchronize } from '@nozbe/watermelondb/sync';
+
+import { database } from '../../database';
+import { api } from '../../services/api';
 
 import Logo from '../../assets/logo.svg';
-import { api } from '../../services/api';
 import { CarDTO } from '../../dtos/CarDTO';
 
 import { Car } from '../../components/Car';
-import { Load } from '../../components/Load';
-import { useTheme } from 'styled-components';
+import { Car as ModelCar } from '../../database/models/Car';
+import { LoadingAnimation } from '../../components/LoadingAnimation';
 
 import {
   Container,
@@ -18,41 +21,72 @@ import {
   TotalCars,
   HeaderContent,
   CarList,
-  MyCarsButton
-}
-from './styles';
-
+} from './styles';
 
 export function Home(){ 
-   const [cars, setCars] = useState<CarDTO[]>([]);
+   const [cars, setCars] = useState<ModelCar[]>([]);
    const [loading, setLoading] = useState(true);
 
+   const netInfo = useNetInfo();
    const navigation = useNavigation();
-   const theme = useTheme();
+
+   async function offilineSynchronize(){
+      await synchronize({
+         database,
+         pullChanges: async ({ lastPulledAt }) => {
+            const response = await api
+            .get(`cars/sync/pull?lastPulledVersion=${lastPulledAt || 0}`);
+
+            const { changes, lastestVersion } = response.data;
+            console.log(changes)
+            return { changes, timestamp: lastestVersion };
+         },
+         pushChanges: async ({ changes }) => {
+            console.log("APP PARA O PACKEND");
+            const user = changes.users;
+            await api.post('/users/sync', user);
+         },
+      });
+   }
 
    useEffect(() => {
+      let isMounted = true;
+
       async function fetchCars(){
          try {
-            const response = await api.get("/cars");
-            setCars(response.data);
+            const carCollection = database.get<ModelCar>('cars');
+            const cars = await carCollection.query().fetch();
+
+            if(isMounted){
+               setCars(cars);
+            }
+
          } catch (error) {
             console.log(error);
          }finally{
-            setLoading(false);
+
+            if(isMounted){
+               setLoading(false);
+            }
+
          }
       }
 
       fetchCars();
-   }, [])
+      return () => {
+         isMounted = false;
+      };
+   }, []);
+
+   useEffect(() => {
+      if(netInfo.isConnected === true){
+         offilineSynchronize
+      }
+   }, [netInfo.isConnected]);
 
    function handleCarDetails(car: CarDTO){
       navigation.navigate('CarDetails', { car });
    };
-
-   function handleOpenMyCars(){
-      navigation.navigate('MyCars');
-   };
-
 
    return (
      <Container>
@@ -67,13 +101,18 @@ export function Home(){
                   width={RFValue(108)}
                   height={RFValue(12)}
                />
-               <TotalCars>
-                  Total de {cars.length} Carros
-               </TotalCars>
+               {
+                  !loading && 
+                  <TotalCars>
+                     Total de {cars.length} Carros
+                  </TotalCars>
+               }
             </HeaderContent>
          </Header>
 
-         { loading ? <Load /> :
+         <Button title="Sincronizar" onPress={offilineSynchronize}>Sinchronizar</Button>
+
+         { loading ? <LoadingAnimation /> :
             <CarList 
                data={cars}
                keyExtractor={item => item.id}
@@ -83,13 +122,6 @@ export function Home(){
             />
          }
 
-         <MyCarsButton onPress={handleOpenMyCars}>
-            <Ionicons 
-               name="ios-car-sport"
-               size={32} 
-               color={theme.colors.shape}
-            />
-         </MyCarsButton>
      </Container>
    );
 }

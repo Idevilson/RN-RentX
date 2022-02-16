@@ -11,6 +11,8 @@ import { Load } from '../../components/Load';
 import { CarDTO } from '../../dtos/CarDTO';
 import { api } from '../../services/api';
 
+import { LoadingAnimation } from '../../components/LoadingAnimation';
+
 import {
     Container,
     Header,
@@ -85,7 +87,7 @@ export function MyCars() {
                     praticidade
                 </SubTitle>
             </Header>
-            { loading ? <Load /> : 
+            { loading ? <LoadingAnimation /> : 
                 <Content>
                     <Appointments>
                         <AppointmentsTitle>Agendamentos feitos</AppointmentsTitle>
